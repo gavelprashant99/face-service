@@ -82,13 +82,15 @@ async def register_face(
 
         temp_path = save_temp_file(faceImage)
 
-        quality = await asyncio.to_thread(check_image_quality, temp_path)
-        if not quality["success"]:
-            raise HTTPException(status_code=400, detail=quality["error"])
-
         face_result = await asyncio.to_thread(detect_single_face, temp_path)
         if not face_result["success"]:
             raise HTTPException(status_code=400, detail=face_result["error"])
+
+        quality = await asyncio.to_thread(
+            check_image_quality, temp_path, face_result.get("facial_area")
+        )
+        if not quality["success"]:
+            raise HTTPException(status_code=400, detail=quality["error"])
 
         embedding = await asyncio.to_thread(
             lambda: extract_embedding(temp_path)

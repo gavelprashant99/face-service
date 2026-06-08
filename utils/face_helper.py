@@ -9,9 +9,10 @@ logger = logging.getLogger("face-service.face_helper")
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 MAX_FILE_SIZE = 5 * 1024 * 1024
 MAX_PROCESSING_DIMENSION = 960
-BLUR_THRESHOLD = 100.0
-MIN_BRIGHTNESS = 40
-MAX_BRIGHTNESS = 215
+BLUR_THRESHOLD = float(os.getenv("FACE_BLUR_THRESHOLD", "45"))
+FACE_BLUR_THRESHOLD = float(os.getenv("FACE_CROP_BLUR_THRESHOLD", str(BLUR_THRESHOLD)))
+MIN_BRIGHTNESS = float(os.getenv("FACE_MIN_BRIGHTNESS", "35"))
+MAX_BRIGHTNESS = float(os.getenv("FACE_MAX_BRIGHTNESS", "225"))
 ARC_COSINE_THRESHOLD = 0.40
 
 
@@ -55,17 +56,46 @@ def validate_file(filename: str, file_size: int) -> tuple[bool, str]:
     return True, ""
 
 
-def check_image_quality(image_path: str) -> dict:
+def _clamped_face_crop(img: np.ndarray, facial_area: dict | None = None) -> np.ndarray:
+    if not facial_area:
+        return img
+
+    h, w = img.shape[:2]
+    x = int(facial_area.get("x", 0))
+    y = int(facial_area.get("y", 0))
+    fw = int(facial_area.get("w", facial_area.get("width", 0)))
+    fh = int(facial_area.get("h", facial_area.get("height", 0)))
+    if fw <= 0 or fh <= 0:
+        return img
+
+    pad_x = int(fw * 0.25)
+    pad_y = int(fh * 0.35)
+    left = max(0, x - pad_x)
+    top = max(0, y - pad_y)
+    right = min(w, x + fw + pad_x)
+    bottom = min(h, y + fh + pad_y)
+    if right <= left or bottom <= top:
+        return img
+
+    return img[top:bottom, left:right]
+
+
+def check_image_quality(image_path: str, facial_area: dict | None = None) -> dict:
     img = cv2.imread(image_path)
     if img is None:
         return {"success": False, "error": "Failed to read image"}
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    quality_img = _clamped_face_crop(img, facial_area)
+    gray = cv2.cvtColor(quality_img, cv2.COLOR_BGR2GRAY)
     lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-    if lap_var < BLUR_THRESHOLD:
+    blur_threshold = FACE_BLUR_THRESHOLD if facial_area else BLUR_THRESHOLD
+    if lap_var < blur_threshold:
         return {
             "success": False,
-            "error": f"Image too blurry (sharpness: {lap_var:.1f}, min: {BLUR_THRESHOLD})",
+            "error": (
+                "Face image is too blurry. Please hold still and keep your face well lit "
+                f"(sharpness: {lap_var:.1f}, min: {blur_threshold:.1f})"
+            ),
         }
 
     mean_brightness = float(np.mean(gray))
@@ -84,6 +114,7 @@ def check_image_quality(image_path: str) -> dict:
         "success": True,
         "blur_score": round(float(lap_var), 1),
         "brightness": round(mean_brightness, 1),
+        "quality_region": "face" if facial_area else "full_image",
     }
 
 
@@ -128,7 +159,12 @@ def detect_single_face(image_path: str) -> dict:
                 "error": "Multiple faces detected. Please ensure only one face is visible.",
             }
 
-        return {"success": True, "face_count": 1}
+        face = get_largest_face(faces)
+        return {
+            "success": True,
+            "face_count": 1,
+            "facial_area": face.get("facial_area"),
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -303,4 +339,10 @@ def detect_single_face_with_opencv(image_path: str) -> dict:
     if len(faces) == 0:
         return {"success": False, "error": "No face detected in the image."}
 
-    return {"success": True, "face_count": len(faces)}
+    largest = max(faces, key=lambda rect: rect[2] * rect[3])
+    x, y, w, h = [int(v) for v in largest]
+    return {
+        "success": True,
+        "face_count": len(faces),
+        "facial_area": {"x": x, "y": y, "w": w, "h": h},
+    }
