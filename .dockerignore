@@ -1,0 +1,35 @@
+# ── Docker ignore ──────────────────────────────────────────────────
+
+# Environment
+.env
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv
+venv/
+
+# Runtime (created by the container on start)
+temp/
+storage/
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Other
+README.md
+test_verify.py
+requirements.txt
+docker-compose.yml

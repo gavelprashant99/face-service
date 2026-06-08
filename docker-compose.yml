@@ -1,0 +1,28 @@
+# ── Face Recognition Service — Docker Compose ──────────────────────
+services:
+  face-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: face-service
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    volumes:
+      # Persist registered face images across restarts
+      - face_storage:/app/storage/employee_faces
+      # Temp uploads (ephemeral)
+      - face_temp:/app/temp
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s  # Allow time for model loading
+
+volumes:
+  face_storage:
+  face_temp:
