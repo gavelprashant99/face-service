@@ -238,6 +238,36 @@ async def verify_face(
             cleanup_files(temp_stored_path)
 
 
+@router.post("/clear-cache/{employee_id}")
+@limiter.limit("20/minute")
+async def clear_employee_cache(
+    request: Request,
+    employee_id: int,
+):
+    """
+    Clear the cached face image and embedding for a specific employee.
+    Called by Laravel whenever an employee's face photo is updated or deleted,
+    ensuring the Python service always uses the latest image on next verification.
+    """
+    try:
+        stored_face = find_employee_face(str(employee_id))
+        if not stored_face["success"]:
+            return {
+                "success": True,
+                "message": f"No cached face found for employee {employee_id} — nothing to clear.",
+            }
+
+        result = delete_file_locally(stored_face["filename"])
+        return {
+            "success": result["success"],
+            "message": f"Cache cleared for employee {employee_id}"
+            if result["success"]
+            else f"Failed to clear cache: {result.get('error', '')}",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/delete")
 @limiter.limit("5/minute")
 async def delete_face(
